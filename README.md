@@ -1,4 +1,4 @@
-# nginx Unit with PHP 7.4
+# nginx Unit with PHP 7.4 [![Docker Pulls](https://img.shields.io/docker/pulls/skauk/unit-php7.4)](https://hub.docker.com/repository/docker/skauk/unit-php7.4)
 
 A Dockerfile to build nginx Unit web server with PHP 7.4 module based on the official image.
 
