@@ -1,33 +1,32 @@
-ARG UNIT_VERSION=1.32.1
-ARG BASE_IMAGE=$UNIT_VERSION-minimal
+ARG BASE_IMAGE=minimal
+FROM unit:$BASE_IMAGE AS base
 
-FROM unit:$BASE_IMAGE as base
-
-ARG UNIT_VERSION
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get -y install ca-certificates \
     && curl -o /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ bullseye main" | tee /etc/apt/sources.list.d/php.list \
     && apt-get update && apt-get install -y php7.4 php7.4-cgi libphp7.4-embed
 
-FROM base as builder
-ARG UNIT_VERSION
+FROM base AS build
+
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get install -y --no-install-recommends build-essential php7.4-dev
 
-RUN curl -L "https://unit.nginx.org/download/unit-$UNIT_VERSION.tar.gz" | tar xzf -
-WORKDIR "$PWD/unit-$UNIT_VERSION"
-RUN ./configure --prefix=/usr --statedir=/var/lib/unit --control=unix:/var/run/control.unit.sock \
-    --pid=/var/run/unit.pid --log=/var/log/unit.log --tmpdir=/var/tmp --user=unit --group=unit \
-    --openssl --libdir=/usr/lib/x86_64-linux-gnu --cc-opt='-g -O2 -fdebug-prefix-map=/unit=. \
-    -specs=/usr/share/dpkg/no-pie-compile.specs -fstack-protector-strong -Wformat -Werror=format-security \
-    -Wp,-D_FORTIFY_SOURCE=2 -fPIC' --modulesdir=/usr/lib/unit/modules
-RUN ./configure php --module=php7.4 --config=php-config
-RUN make php7.4
-RUN cp build/lib/unit/modules/php7.4.unit.so /tmp
+# Compile PHP 7.4 module
+RUN UNIT_VERSION=$(unitd --version 2>&1 | grep 'version:' | cut -d' ' -f3) \
+    UNIT_CONFIGURE=$(unitd --version 2>&1 | grep './configure' | sed -E 's/.*(\.\/configure)/\1/' | sed 's/--njs//' | sed "s/--ld-opt='.*'//") \
+    && curl -sL "https://unit.nginx.org/download/unit-$UNIT_VERSION.tar.gz" | tar xzf - \
+    && cd "$PWD/unit-$UNIT_VERSION" \
+    && eval "$UNIT_CONFIGURE" \
+    && ./configure php --module=php7.4 --config=php-config \
+    && make php7.4 \
+    && cp build/lib/unit/modules/php7.4.unit.so /tmp
 
-FROM base
+FROM build
+
+COPY --from=build /tmp/php7.4.unit.so /usr/lib/unit/modules/
 
 # Customise PHP extensions
 RUN apt-get install -y \
@@ -38,8 +37,5 @@ RUN apt-get install -y \
         php7.4-intl \
         php7.4-pgsql \
         php7.4-xdebug \
-        php7.4-zip
-
-COPY --from=builder /tmp/php7.4.unit.so /usr/lib/unit/modules/
-
-RUN apt-get clean autoclean && apt-get autoremove --yes && rm -rf /var/lib/{apt,dpkg,cache,log}/
+        php7.4-zip \
+    && apt-get clean autoclean && apt-get autoremove --yes && rm -rf /var/lib/{apt,dpkg,cache,log}/
